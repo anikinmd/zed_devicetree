@@ -1,0 +1,11 @@
+name = "devicetree"
+grammar = "devicetree"
+path_suffixes = ["dts", "dtsi", "dtso", "its"]
+line_comments = ["// "]
+
+brackets = [
+    { start = "[", end = "]", close = true, newline = false },
+    { start = "(", end = ")", close = true, newline = false },
+    { start = "<", end = ">", close = true, newline = false },
+    { start = "{", end = "}", close = true, newline = true },
+]

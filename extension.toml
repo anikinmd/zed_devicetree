@@ -1,0 +1,15 @@
+id = "devicetree"
+name = "devicetree"
+schema_version = 1
+description = "DeviceTree syntax highlight"
+repository = "https://github.com/anikinmd/zed_devicetree"
+authors = ["Mikhail Anikin <anikin.mikhail.d@gmail.com>"]
+version = "0.0.1"
+
+[grammars.devicetree]
+repository = "https://github.com/joelspadin/tree-sitter-devicetree"
+commit = "296b3c294a8bcfca6673296d99f9cd37049b8026"
+
+[language_servers.devicetree]
+name = "devicetree"
+languages = ["devicetree"]
