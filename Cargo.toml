@@ -1,6 +1,6 @@
 [package]
 name = "zed_devicetree"
-version = "0.0.1"
+version = "0.2.0"
 edition = "2021"
 publish = false
 license = "0BSD"
@@ -10,4 +10,4 @@ path = "src/devicetree.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-zed_extension_api = "0.0.6"
+zed_extension_api = "0.7.0"
