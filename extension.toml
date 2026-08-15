@@ -1,10 +1,10 @@
 id = "devicetree"
 name = "devicetree"
 schema_version = 1
-description = "DeviceTree syntax highlight"
+description = "DeviceTree syntax highlighting and language server support"
 repository = "https://github.com/anikinmd/zed_devicetree"
 authors = ["Mikhail Anikin <anikin.mikhail.d@gmail.com>"]
-version = "0.0.1"
+version = "0.2.0"
 
 [grammars.devicetree]
 repository = "https://github.com/joelspadin/tree-sitter-devicetree"
