@@ -6,6 +6,9 @@ repository = "https://github.com/anikinmd/zed_devicetree"
 authors = ["Mikhail Anikin <anikin.mikhail.d@gmail.com>"]
 version = "0.2.0"
 
+# Config samples, offered as completions when editing a Zed settings file.
+snippets = "./snippets/jsonc.json"
+
 [grammars.devicetree]
 repository = "https://github.com/joelspadin/tree-sitter-devicetree"
 commit = "e685f1f6ac1702b046415efb476444167d63e41a"
