@@ -1,0 +1,40 @@
+// Linux kernel tree. Copy into .zed/settings.json at the root of the checkout.
+//
+// The extension already defaults to DevicetreeOrg bindings, include/ on the
+// include path, ad-hoc contexts and no formatting diagnostics. Settings here
+// are layered on top of that; drop any section you have no use for.
+{
+  "lsp": {
+    "dts-language-server": {
+      "settings": {
+        "devicetree": {
+          // One entry per board. dtsFile is the top-level .dts; the .dtsi files
+          // it includes come with it. Paths are relative to the folder opened
+          // in Zed unless cwd says otherwise.
+          "contexts": [
+            {
+              "ctxName": "my-board",
+              "dtsFile": "arch/arm64/boot/dts/vendor/my-board.dts",
+              "includePaths": [
+                "include",
+                "arch/arm64/boot/dts/vendor",
+                "arch/arm64/boot/dts"
+              ]
+            }
+          ],
+
+          // Property validation against devicetree.org schemas. Experimental
+          // upstream. Needs a dt-schema checkout:
+          // https://github.com/devicetree-org/dt-schema
+          "defaultDeviceOrgBindingsMetaSchema": [
+            // "/path/to/dt-schema/dtschema/meta-schemas"
+          ],
+          "defaultDeviceOrgTreeBindings": [
+            // "/path/to/dt-schema/dtschema/schemas",
+            // "Documentation/devicetree/bindings"
+          ]
+        }
+      }
+    }
+  }
+}
