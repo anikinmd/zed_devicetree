@@ -1,121 +1,242 @@
+use std::collections::HashMap;
 use std::fs;
+
+use zed::serde_json::{json, Value};
+use zed::settings::LspSettings;
 use zed_extension_api::{self as zed, Result};
 
-struct DTSExtension {
-    cached_binary_path: Option<String>,
+const LANGUAGE_SERVER_ID: &str = "dts-language-server";
+const NPM_PACKAGE: &str = "devicetree-language-server";
+const NPM_SERVER_PATH: &str = "node_modules/devicetree-language-server/dist/server.js";
+
+#[derive(Default)]
+struct DeviceTreeExtension {
+    installed: bool,
 }
 
-#[derive(Clone)]
-struct DTSBinary(String);
-
-impl DTSExtension {
-    fn language_server_binary(
-        &mut self,
-        language_server_id: &zed::LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> Result<DTSBinary> {
-        if let Some(path) = worktree.which("dts-lsp") {
-            return Ok(DTSBinary(path));
+/// Enough to be useful in a kernel tree
+fn default_configuration(worktree: &zed::Worktree) -> Value {
+    json!({
+        "devicetree": {
+            "cwd": worktree.root_path(),
+            "defaultBindingType": "DevicetreeOrg",
+            "defaultDeviceOrgTreeBindings": [],
+            "defaultDeviceOrgBindingsMetaSchema": [],
+            "defaultIncludePaths": ["include"],
+            "allowAdhocContexts": true,
+            "autoChangeContext": true,
+            "defaultShowFormattingErrorAsDiagnostics": false,
         }
+    })
+}
 
-        if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
-                return Ok(DTSBinary(path.clone()));
+fn west_zephyr_base(config: &str) -> Option<String> {
+    let mut in_zephyr_section = false;
+    for line in config.lines() {
+        let line = line.trim();
+        if let Some(section) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_zephyr_section = section.trim().eq_ignore_ascii_case("zephyr");
+            continue;
+        }
+        if !in_zephyr_section {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            if key.trim().eq_ignore_ascii_case("base") && !value.trim().is_empty() {
+                return Some(value.trim().to_string());
             }
+        }
+    }
+    None
+}
+
+fn is_absolute(path: &str) -> bool {
+    path.starts_with('/') || path.chars().nth(1) == Some(':')
+}
+
+fn take_zephyr_base_override(config: &mut Value) -> Option<String> {
+    let base = config
+        .get_mut("devicetree")?
+        .as_object_mut()?
+        .remove("zephyrBase")?;
+    let base = base.as_str()?.trim();
+    (!base.is_empty()).then(|| base.to_string())
+}
+
+fn zephyr_base(worktree: &zed::Worktree, env: &HashMap<String, String>) -> Option<String> {
+    // What the user chose, if they sourced zephyr-env.sh or ran through west.
+    if let Some(base) = env.get("ZEPHYR_BASE").filter(|base| !base.is_empty()) {
+        return Some(base.clone());
+    }
+
+    // Check if west config is available
+    let root = worktree.root_path();
+    if let Ok(config) = worktree.read_text_file(".west/config") {
+        if let Some(base) = west_zephyr_base(&config) {
+            return Some(if is_absolute(&base) {
+                base
+            } else {
+                format!("{root}/{base}")
+            });
+        }
+    }
+
+    // Zephyr vendored in, checked out without west.
+    worktree
+        .read_text_file("zephyr/VERSION")
+        .ok()
+        .map(|_| format!("{root}/zephyr"))
+}
+
+fn expand(text: &str, lookup: &impl Fn(&str) -> Option<String>) -> String {
+    if !text.contains("${") {
+        return text.to_string();
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            out.push_str("${");
+            rest = after;
+            continue;
+        };
+        let name = &after[..end];
+        match lookup(name) {
+            Some(value) => out.push_str(&value),
+            None => {
+                out.push_str("${");
+                out.push_str(name);
+                out.push('}');
+            }
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn expand_value(value: &mut Value, lookup: &impl Fn(&str) -> Option<String>) {
+    match value {
+        Value::String(text) => *text = expand(text, lookup),
+        Value::Array(items) => items.iter_mut().for_each(|item| expand_value(item, lookup)),
+        Value::Object(entries) => entries
+            .values_mut()
+            .for_each(|entry| expand_value(entry, lookup)),
+        _ => {}
+    }
+}
+
+fn workspace_configuration(worktree: &zed::Worktree, user: Option<Value>) -> Value {
+    let mut config = merge(default_configuration(worktree), user);
+
+    let env: HashMap<String, String> = worktree.shell_env().into_iter().collect();
+    let from_env = |name: &str| {
+        name.strip_prefix("env:")
+            .and_then(|var| env.get(var).cloned())
+    };
+
+    let zephyr = match take_zephyr_base_override(&mut config) {
+        // An explicit setting may lean on the environment itself, and may be
+        // written relative to the folder that was opened.
+        Some(base) => {
+            let base = expand(&base, &from_env);
+            Some(if is_absolute(&base) {
+                base
+            } else {
+                format!("{}/{base}", worktree.root_path())
+            })
+        }
+        None => zephyr_base(worktree, &env),
+    };
+
+    expand_value(&mut config, &|name: &str| match name {
+        "zephyrBase" => zephyr.clone(),
+        _ => from_env(name),
+    });
+
+    config
+}
+
+/// Key by key, so that setting `contexts` alone does not quietly drop the rest
+/// of the defaults.
+fn merge(mut config: Value, user: Option<Value>) -> Value {
+    let Some(user) = user else {
+        return config;
+    };
+
+    let (Some(sections), Some(user_sections)) = (config.as_object_mut(), user.as_object()) else {
+        return user;
+    };
+
+    for (name, user_section) in user_sections {
+        match (
+            sections.get_mut(name).and_then(Value::as_object_mut),
+            user_section.as_object(),
+        ) {
+            (Some(defaults), Some(overrides)) => {
+                for (key, value) in overrides {
+                    defaults.insert(key.clone(), value.clone());
+                }
+            }
+            _ => {
+                sections.insert(name.clone(), user_section.clone());
+            }
+        }
+    }
+
+    config
+}
+
+impl DeviceTreeExtension {
+    fn server_script_path(&mut self, language_server_id: &zed::LanguageServerId) -> Result<String> {
+        let installed = |path: &str| fs::metadata(path).is_ok_and(|stat| stat.is_file());
+
+        if self.installed && installed(NPM_SERVER_PATH) {
+            return Ok(absolute_server_path());
         }
 
         zed::set_language_server_installation_status(
             language_server_id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
         );
-        let release = zed::latest_github_release(
-            "igor-prusov/dts-lsp",
-            zed::GithubReleaseOptions {
-                require_assets: true,
-                pre_release: false,
-            },
-        )?;
+        let latest = zed::npm_package_latest_version(NPM_PACKAGE)?;
 
-        let (platform, arch) = zed::current_platform();
-        let version = release
-            .version
-            .strip_prefix("v")
-            .unwrap_or(&release.version);
-        let asset_name = format!(
-            "dts-lsp-{version}-{arch}-{os}.tar.gz",
-            version = version,
-            arch = match arch {
-                zed::Architecture::Aarch64 => "aarch64",
-                zed::Architecture::X8664 => "x86_64",
-                zed::Architecture::X86 => return Err("unsupported architecture".into()),
-            },
-            os = match platform {
-                zed::Os::Mac => "apple-darwin",
-                zed::Os::Linux => "unknown-linux-musl",
-                zed::Os::Windows => "pc-windows-msvc",
-            },
-        );
-
-        let asset = release
-            .assets
-            .iter()
-            .find(|asset| asset.name == asset_name)
-            .ok_or_else(|| format!("no asset found matching {:?}", asset_name))?;
-
-        let version_dir = format!("dts-{}", release.version);
-        fs::create_dir_all(&version_dir).map_err(|e| format!("failed to create directory: {e}"))?;
-
-        let binary_path = format!(
-            "{version_dir}/{DTS_binary}",
-            DTS_binary = match platform {
-                zed::Os::Mac => "dts-lsp",
-                zed::Os::Linux => "dts-lsp",
-                zed::Os::Windows => "dts-lsp.exe",
-            }
-        );
-
-        if !fs::metadata(&binary_path).map_or(false, |stat| stat.is_file()) {
+        if !installed(NPM_SERVER_PATH)
+            || zed::npm_package_installed_version(NPM_PACKAGE)?.as_ref() != Some(&latest)
+        {
             zed::set_language_server_installation_status(
                 language_server_id,
                 &zed::LanguageServerInstallationStatus::Downloading,
             );
 
-            zed::download_file(
-                &asset.download_url,
-                &version_dir,
-                zed::DownloadedFileType::GzipTar,
-            )
-            .map_err(|e| format!("failed to download file: {e}"))?;
-
-            zed::make_file_executable(&binary_path)?;
-            if let Ok(z3s) = fs::read_dir(format!("{version_dir}")) {
-                for file in z3s.flatten() {
-                    if let Some(path) = file.path().to_str() {
-                        zed::make_file_executable(path)?;
-                    }
+            if let Err(error) = zed::npm_install_package(NPM_PACKAGE, &latest) {
+                if !installed(NPM_SERVER_PATH) {
+                    return Err(error);
                 }
-            }
-
-            let entries =
-                fs::read_dir(".").map_err(|e| format!("failed to list working directory {e}"))?;
-            for entry in entries {
-                let entry = entry.map_err(|e| format!("failed to load directory entry {e}"))?;
-                if entry.file_name().to_str() != Some(&version_dir) {
-                    fs::remove_dir_all(entry.path()).ok();
-                }
+            } else if !installed(NPM_SERVER_PATH) {
+                return Err(format!(
+                    "installed package {NPM_PACKAGE:?} did not contain expected path {NPM_SERVER_PATH:?}"
+                ));
             }
         }
 
-        self.cached_binary_path = Some(binary_path.clone());
-        Ok(DTSBinary(binary_path))
+        self.installed = true;
+        Ok(absolute_server_path())
     }
 }
 
-impl zed::Extension for DTSExtension {
+fn absolute_server_path() -> String {
+    std::env::current_dir()
+        .map(|dir| dir.join(NPM_SERVER_PATH).to_string_lossy().into_owned())
+        .unwrap_or_else(|_| NPM_SERVER_PATH.to_string())
+}
+
+impl zed::Extension for DeviceTreeExtension {
     fn new() -> Self {
-        Self {
-            cached_binary_path: None,
-        }
+        Self::default()
     }
 
     fn language_server_command(
@@ -123,13 +244,55 @@ impl zed::Extension for DTSExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let DTSBinary(path) = self.language_server_binary(language_server_id, worktree)?;
-        Ok(zed::Command {
-            command: path,
-            args: vec![],
-            env: worktree.shell_env(),
-        })
+        let binary = LspSettings::for_worktree(LANGUAGE_SERVER_ID, worktree)
+            .ok()
+            .and_then(|settings| settings.binary);
+
+        let mut args = binary
+            .as_ref()
+            .and_then(|binary| binary.arguments.clone())
+            .unwrap_or_else(|| vec!["--stdio".into()]);
+        let mut env = worktree.shell_env();
+        if let Some(extra) = binary.as_ref().and_then(|binary| binary.env.clone()) {
+            env.extend(extra);
+        }
+
+        let path = binary
+            .and_then(|binary| binary.path)
+            .or_else(|| worktree.which(NPM_PACKAGE));
+
+        let command = match path {
+            Some(command) => command,
+            None => {
+                args.insert(0, self.server_script_path(language_server_id)?);
+                zed::node_binary_path()?
+            }
+        };
+
+        Ok(zed::Command { command, args, env })
+    }
+
+    fn language_server_initialization_options(
+        &mut self,
+        _language_server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> Result<Option<Value>> {
+        Ok(LspSettings::for_worktree(LANGUAGE_SERVER_ID, worktree)
+            .ok()
+            .and_then(|settings| settings.initialization_options))
+    }
+
+    fn language_server_workspace_configuration(
+        &mut self,
+        _language_server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> Result<Option<Value>> {
+        let user = LspSettings::for_worktree(LANGUAGE_SERVER_ID, worktree)
+            .ok()
+            .and_then(|settings| settings.settings);
+
+        Ok(Some(workspace_configuration(worktree, user)))
     }
 }
 
-zed::register_extension!(DTSExtension);
+zed::register_extension!(DeviceTreeExtension);
