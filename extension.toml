@@ -10,6 +10,8 @@ version = "0.0.1"
 repository = "https://github.com/joelspadin/tree-sitter-devicetree"
 commit = "e685f1f6ac1702b046415efb476444167d63e41a"
 
-[language_servers.devicetree]
-name = "devicetree"
+# https://github.com/kylebonnici/dts-lsp. Ships with a default configuration,
+# so it works without setup; see templates/ for describing a project properly.
+[language_servers.dts-language-server]
+name = "DeviceTree Language Server"
 languages = ["devicetree"]
