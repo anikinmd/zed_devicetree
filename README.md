@@ -52,10 +52,19 @@ switch a default off, name it:
 }
 ```
 
-Two templates to start from:
+Both samples ship with the extension as snippets, so setting this up needs
+nothing from this repository. In any Zed settings file — `.zed/settings.json`
+or your global one — start typing:
 
-- [`templates/linux-kernel.jsonc`](templates/linux-kernel.jsonc) — Linux kernel checkout
-- [`templates/zephyr.jsonc`](templates/zephyr.jsonc) — Zephyr west workspace
+| Prefix | Inserts |
+| --- | --- |
+| `devicetree-linux` | Configuration for a Linux kernel checkout |
+| `devicetree-zephyr` | Configuration for a Zephyr west workspace |
+
+Accept the completion, then tab through the board name, arch and overlay.
+
+The same samples are readable as [`templates/linux-kernel.jsonc`](templates/linux-kernel.jsonc)
+and [`templates/zephyr.jsonc`](templates/zephyr.jsonc), with comments.
 
 For the settings themselves, see the [dts-lsp documentation][lsp].
 
@@ -78,9 +87,12 @@ visibly wrong path rather than a plausible one.
 
 1. A `zephyrBase` setting, described below.
 2. `$ZEPHYR_BASE`, which both `west` and `zephyr-env.sh` export.
-3. `zephyr.base` from `.west/config`, checked in the folder you opened and one
-   level up, since opening the application directory is common.
+3. `zephyr.base` from `.west/config` in the folder you opened.
 4. A vendored `zephyr/` directory, detected by `zephyr/VERSION`.
+
+An extension can only read inside the folder you opened, so if you open an
+application directory rather than the west workspace root, steps 3 and 4 find
+nothing. Use `$ZEPHYR_BASE` or the setting below.
 
 When that picks the wrong tree, or there is more than one to pick from, pin it:
 
