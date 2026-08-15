@@ -5,6 +5,9 @@ use zed::serde_json::{json, Value};
 use zed::settings::LspSettings;
 use zed_extension_api::{self as zed, Result};
 
+#[cfg(test)]
+mod tests;
+
 const LANGUAGE_SERVER_ID: &str = "dts-language-server";
 const NPM_PACKAGE: &str = "devicetree-language-server";
 const NPM_SERVER_PATH: &str = "node_modules/devicetree-language-server/dist/server.js";
@@ -14,8 +17,30 @@ struct DeviceTreeExtension {
     installed: bool,
 }
 
+/// The little of the worktree the configuration is built from. Named so the
+/// lookup below can be exercised without an editor behind it.
+trait Project {
+    fn root_path(&self) -> String;
+    fn read_text_file(&self, path: &str) -> Result<String>;
+    fn shell_env(&self) -> Vec<(String, String)>;
+}
+
+impl Project for zed::Worktree {
+    fn root_path(&self) -> String {
+        zed::Worktree::root_path(self)
+    }
+
+    fn read_text_file(&self, path: &str) -> Result<String> {
+        zed::Worktree::read_text_file(self, path)
+    }
+
+    fn shell_env(&self) -> Vec<(String, String)> {
+        zed::Worktree::shell_env(self)
+    }
+}
+
 /// Enough to be useful in a kernel tree
-fn default_configuration(worktree: &zed::Worktree) -> Value {
+fn default_configuration(worktree: &impl Project) -> Value {
     json!({
         "devicetree": {
             "cwd": worktree.root_path(),
@@ -63,7 +88,7 @@ fn take_zephyr_base_override(config: &mut Value) -> Option<String> {
     (!base.is_empty()).then(|| base.to_string())
 }
 
-fn zephyr_base(worktree: &zed::Worktree, env: &HashMap<String, String>) -> Option<String> {
+fn zephyr_base(worktree: &impl Project, env: &HashMap<String, String>) -> Option<String> {
     // What the user chose, if they sourced zephyr-env.sh or ran through west.
     if let Some(base) = env.get("ZEPHYR_BASE").filter(|base| !base.is_empty()) {
         return Some(base.clone());
@@ -129,7 +154,7 @@ fn expand_value(value: &mut Value, lookup: &impl Fn(&str) -> Option<String>) {
     }
 }
 
-fn workspace_configuration(worktree: &zed::Worktree, user: Option<Value>) -> Value {
+fn workspace_configuration(worktree: &impl Project, user: Option<Value>) -> Value {
     let mut config = merge(default_configuration(worktree), user);
 
     let env: HashMap<String, String> = worktree.shell_env().into_iter().collect();
