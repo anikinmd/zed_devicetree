@@ -3,7 +3,7 @@ name = "zed_devicetree"
 version = "0.2.0"
 edition = "2021"
 publish = false
-license = "0BSD"
+license = "MIT"
 
 [lib]
 path = "src/devicetree.rs"
