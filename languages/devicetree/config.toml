@@ -1,6 +1,6 @@
 name = "devicetree"
 grammar = "devicetree"
-path_suffixes = ["dts", "dtsi", "dtso", "its"]
+path_suffixes = ["dts", "dtsi", "dtso", "its", "overlay"]
 line_comments = ["// "]
 
 brackets = [
