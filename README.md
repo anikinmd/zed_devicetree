@@ -66,7 +66,9 @@ Accept the completion, then tab through the board name, arch and overlay.
 The same samples are readable as [`templates/linux-kernel.jsonc`](templates/linux-kernel.jsonc)
 and [`templates/zephyr.jsonc`](templates/zephyr.jsonc), with comments.
 
-For the settings themselves, see the [dts-lsp documentation][lsp].
+For the settings themselves, see the
+[dts-lsp configuration reference](https://github.com/kylebonnici/dts-lsp#usage),
+which lists every key of the `Settings` and `Context` objects.
 
 ### Variables
 
