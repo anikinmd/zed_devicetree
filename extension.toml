@@ -8,7 +8,7 @@ version = "0.0.1"
 
 [grammars.devicetree]
 repository = "https://github.com/joelspadin/tree-sitter-devicetree"
-commit = "296b3c294a8bcfca6673296d99f9cd37049b8026"
+commit = "e685f1f6ac1702b046415efb476444167d63e41a"
 
 [language_servers.devicetree]
 name = "devicetree"
