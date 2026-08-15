@@ -1,0 +1,68 @@
+// Zephyr west workspace. Copy into .zed/settings.json and replace the boards.
+//
+// ${zephyrBase} resolves to ZEPHYR_BASE, or zephyr.base from .west/config, or
+// a vendored zephyr/. Paths without a variable are relative to the folder
+// opened in Zed, where an application keeps its own boards/ and dts/bindings/.
+//
+// Zephyr bindings bring property validation, bus checks, hover descriptions
+// and DT_ macro support. The first keys below turn them on, replacing the
+// extension's kernel-leaning defaults.
+{
+  "lsp": {
+    "dts-language-server": {
+      "settings": {
+        "devicetree": {
+          // Only needed when the lookup above picks the wrong tree, or there is
+          // more than one to pick from. Absolute, relative, or ${env:VAR}/zephyr.
+          // "zephyrBase": "/opt/nordic/ncs/v3.0.0/zephyr",
+
+          "defaultBindingType": "Zephyr",
+
+          // Upstream bindings first, then this application's own.
+          "defaultZephyrBindings": [
+            "${zephyrBase}/dts/bindings",
+            "dts/bindings"
+          ],
+
+          // Board .dts files include their SoC by arch-relative path, so each
+          // arch directory is searched on its own. Drop the ones you don't build.
+          "defaultIncludePaths": [
+            "${zephyrBase}/dts",
+            "${zephyrBase}/dts/common",
+            "${zephyrBase}/dts/vendor",
+            "${zephyrBase}/dts/arm",
+            "${zephyrBase}/dts/arm64",
+            "${zephyrBase}/dts/riscv",
+            "${zephyrBase}/dts/xtensa",
+            "${zephyrBase}/include",
+            "dts",
+            "include"
+          ],
+
+          "contexts": [
+            // Upstream board with this application's overlay on top.
+            {
+              "ctxName": "nrf52840dk",
+              "dtsFile": "${zephyrBase}/boards/nordic/nrf52840dk/nrf52840dk_nrf52840.dts",
+              "overlays": ["boards/nrf52840dk_nrf52840.overlay"]
+            },
+            // Out-of-tree board in this repository, in board root layout:
+            // boards/<vendor>/<board>/<board>.dts
+            {
+              "ctxName": "my-board",
+              "dtsFile": "boards/acme/my_board/my_board.dts",
+              "overlays": ["boards/my_board.overlay"]
+            }
+          ],
+          "preferredContext": 0,
+
+          // Zephyr enforces its style guide in CI, so these are worth seeing.
+          "defaultShowFormattingErrorAsDiagnostics": true,
+
+          // Keep rename from editing the SDK.
+          "defaultLockRenameEdits": ["${zephyrBase}"]
+        }
+      }
+    }
+  }
+}
