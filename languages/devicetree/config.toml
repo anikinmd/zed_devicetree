@@ -2,6 +2,7 @@ name = "devicetree"
 grammar = "devicetree"
 path_suffixes = ["dts", "dtsi", "dtso", "its", "overlay"]
 line_comments = ["// "]
+hard_tabs = true
 
 brackets = [
     { start = "[", end = "]", close = true, newline = false },
